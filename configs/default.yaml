@@ -1,0 +1,31 @@
+# 默认配置：CPU 可跑的最小实验规模
+# 改这里而不是改代码；命令行可用 --config 覆盖整份配置
+
+data:
+  hf_dataset: C-MTEB/DuRetrieval
+  hf_qrels_dataset: C-MTEB/DuRetrieval-qrels
+  corpus_size: 20000
+  query_size: 300
+  seed: 42
+
+retriever:
+  embed_model: BAAI/bge-m3
+  embed_batch_size: 16
+  rerank_model: BAAI/bge-reranker-base
+  rerank_batch_size: 16
+  rerank_top_k: 50
+  bm25_k1: 0.9
+  bm25_b: 0.4
+  fusion: rrf
+  rrf_k: 60
+
+eval:
+  top_ks: [1, 5, 10]
+  main_k: 5
+  gen_sample_size: 60
+  gen_top_k: 5
+
+router:
+  long_query_chars: 14
+  code_like_ratio: 0.15
+  rerank_gap: 0.25

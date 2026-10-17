@@ -95,6 +95,31 @@ def normalize_qrels(qrels: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def _normalize_corpus(corpus: pd.DataFrame) -> pd.DataFrame:
+    """统一语料列名为 ``pid`` / ``text``，并去掉空文本与重复 id。"""
+    df = corpus.rename(columns={"id": "pid", "doc_id": "pid", "text_id": "text"})
+    missing = {"pid", "text"} - set(df.columns)
+    if missing:
+        raise ValueError(f"语料缺少列：{sorted(missing)}；实际列：{list(df.columns)}")
+    df = df[["pid", "text"]].copy()
+    df["pid"] = df["pid"].astype(str)
+    df["text"] = df["text"].astype(str)
+    df = df[df["text"].str.strip().astype(bool)]
+    return df.drop_duplicates("pid").reset_index(drop=True)
+
+
+def _normalize_queries(queries: pd.DataFrame) -> pd.DataFrame:
+    """统一查询列名为 ``qid`` / ``text``。"""
+    df = queries.rename(columns={"id": "qid", "query_id": "qid"})
+    missing = {"qid", "text"} - set(df.columns)
+    if missing:
+        raise ValueError(f"查询缺少列：{sorted(missing)}；实际列：{list(df.columns)}")
+    df = df[["qid", "text"]].copy()
+    df["qid"] = df["qid"].astype(str)
+    df["text"] = df["text"].astype(str)
+    return df.drop_duplicates("qid").reset_index(drop=True)
+
+
 def build_eval_set(
     corpus: pd.DataFrame,
     queries: pd.DataFrame,
@@ -112,11 +137,8 @@ def build_eval_set(
     """
     rng = random.Random(cfg.seed)
     qrels = normalize_qrels(qrels)
-    corpus = corpus.rename(columns={"doc_id": "pid", "text_id": "text"})
-    queries = queries.rename(columns={"query_id": "qid", "text": "text"})
-
-    corpus["pid"] = corpus["pid"].astype(str)
-    queries["qid"] = queries["qid"].astype(str)
+    corpus = _normalize_corpus(corpus)
+    queries = _normalize_queries(queries)
 
     # 只用有正例、且正例都在语料里的 query
     corpus_ids = set(corpus["pid"])

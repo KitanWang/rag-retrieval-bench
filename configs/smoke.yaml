@@ -1,0 +1,17 @@
+# 冒烟配置：几百篇语料、20 条查询，几分钟内验证全链路
+# 用途：改完检索代码先跑这个，确认没跑飞再上默认配置
+
+data:
+  corpus_size: 500
+  query_size: 20
+  seed: 42
+
+retriever:
+  embed_model: BAAI/bge-small-zh-v1.5
+  embed_batch_size: 32
+  rerank_model: BAAI/bge-reranker-base
+  rerank_top_k: 30
+
+eval:
+  top_ks: [1, 5, 10]
+  gen_sample_size: 5
