@@ -363,3 +363,28 @@ def test_router_upgrade_uses_full_candidate_pool() -> None:
         "升级路径不能直接把两路候选首尾相接——那会让稠密分支占满名额，"
         "稀疏分支的候选全被丢掉，等于没做混合"
     )
+
+
+def test_ablation_script_uses_qid_as_dict_key() -> None:
+    """脚本里的命中缓存以 qid 为键，不能用查询文本去索引。
+
+    真实踩过的 bug：`dense_hits` 的键是 qid，代码却写成 `dense_hits[qtext[q]]`
+    （用查询文本索引），一跑就 KeyError。因为脚本不在 CI 的单测范围里，
+    这个错误藏了很久——直到真跑 ablation 才暴露。
+
+    这类「脚本和库代码用不同的键约定」的问题，纯靠人工 review 很难发现，
+    所以用静态断言钉住：脚本里对 hits 字典的访问必须用 q，不能是 qtext[...]。
+    """
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "scripts" / "ablation_fusion.py"
+    # 去掉注释与文档字符串后再检查，避免把说明文字误判成代码
+    lines = [
+        ln.split("#", 1)[0]
+        for ln in src.read_text(encoding="utf-8").splitlines()
+    ]
+    code = "\n".join(lines)
+    for bad in ("dense_hits[qtext[", "sparse_hits[qtext["):
+        assert bad not in code, (
+            f"`{bad}` 会用查询文本索引以 qid 为键的字典，运行时必然 KeyError"
+        )

@@ -59,7 +59,8 @@ def main() -> int:
     bundle = RetrieverBundle(cfg, corpus["pid"].tolist(), corpus["text"].tolist())
 
     def evaluate(make_ranker) -> dict:
-        rankings = {q: [h.pid for h in make_ranker(qtext[q])] for q in qids}
+        """make_ranker 接收 qid，返回该查询的有序 Hit 列表。"""
+        rankings = {q: [h.pid for h in make_ranker(q)] for q in qids}
         return evaluate_rankings(rankings, gold, [args.k])
 
     results: dict[str, dict] = {}
@@ -67,6 +68,9 @@ def main() -> int:
         dense_hits = {q: bundle.dense.search(qtext[q], top_k=args.pool) for q in qids}
         sparse_hits = {q: bundle.sparse.search(qtext[q], top_k=args.pool) for q in qids}
 
+        # 注意：dense_hits / sparse_hits 的键是 **qid**，不是查询文本。
+        # 早先这里写成 dense_hits[qtext[q]]（用文本索引），一旦真正跑就会 KeyError——
+        # 因为脚本没被列入 CI 的冒烟测试，这个错误一直没暴露。
         single_dense = evaluate(lambda q: dense_hits[q][: args.k])
         single_sparse = evaluate(lambda q: sparse_hits[q][: args.k])
         results["dense_only"] = single_dense
