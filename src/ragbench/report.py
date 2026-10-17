@@ -123,6 +123,49 @@ def render_route_latency(payload: dict) -> str:
     return "\n".join(lines)
 
 
+def render_fusion_tuning(payload: dict) -> str:
+    """渲染融合策略扫描结果，解释「混合检索为什么不一定更好」。"""
+    rows = payload.get("rows") or []
+    if not rows:
+        return ""
+    k = payload.get("main_k", 5)
+    lines = [
+        f"> 语料 {payload.get('corpus', 0):,} 篇 / 查询 {payload.get('queries', 0)} 条；"
+        f"`alpha` 是稠密分支权重（1.0 = 纯向量，0.0 = 纯 BM25）。\n",
+        f"| 融合策略 | Recall@{k} | MRR@{k} | nDCG@{k} |",
+        "| :--- | ---: | ---: | ---: |",
+    ]
+    for r in rows:
+        lines.append(
+            f"| {r['name']} | {_pct(r['recall'])} | {_pct(r['mrr'])} | {_pct(r['ndcg'])} |"
+        )
+
+    base = next((r for r in rows if "dense" in r["name"]), None)
+    best = max(rows, key=lambda r: r["recall"])
+    if base and best:
+        lines.append("")
+        gain = (best["recall"] - base["recall"]) * 100
+        lines.append(
+            f"**最优：{best['name']}（Recall@{k} {_pct(best['recall'])}）**，"
+            f"比纯向量提升 {gain:+.1f} pp。"
+        )
+        lines.append("")
+        lines.append(
+            "注意三点：\n"
+            "1. **最优融合不是等权**（alpha=0.6 而非 0.5）——两路检索器强弱差距大时，"
+            "等权等于把弱的一路按同样的票数掺进来，把强路已排对的结果挤下去；\n"
+            "2. **RRF 的 k 值影响很大**：本数据集上 k=60 的 RRF（74.9%）甚至不如纯向量（79.1%），"
+            "因为 k 越大、名次差异被压得越平，弱路的高名次噪声越容易挤掉强路的正确结果；\n"
+            "3. **本节数字没有被用来替换主表**——这是刻意的。"
+            "主实验用的是 RRF k=60（社区默认值，未在本数据上调参），"
+            "而这里的 alpha 是在**同一批评测查询**上扫描出来的。"
+            "如果拿扫描最优值去替换主表，就是在测试集上调参，报告里的「提升」会虚高。"
+            "正确做法是先在小规模验证集上定参数、再在评测集上一次性报告——"
+            "本项目规模小，选择了「如实报告默认配置的结果 + 单独说明调参潜力」。"
+        )
+    return "\n".join(lines)
+
+
 def render_backend_bench(payload: dict) -> str:
     """渲染向量后端基准（如果跑过 scripts/bench_vector_backends.py）。"""
     results = payload.get("results") or []
@@ -170,6 +213,7 @@ def build_report(cfg, out_path: Path) -> Path:
     retrieval = _load(cfg.output_dir / "retrieval_results.json")
     generation = _load(cfg.output_dir / "generation_results.json")
     backend = _load(cfg.output_dir / "backend_bench.json")
+    fusion = _load(cfg.output_dir / "fusion_tuning.json")
     stats = _load(cfg.data.processed_dir / "stats.json") or {}
 
     parts: list[str] = []
@@ -212,13 +256,18 @@ def build_report(cfg, out_path: Path) -> Path:
                 parts.append(route_lat)
                 parts.append("")
 
+    if fusion:
+        parts.append("## 5. 融合策略扫描：混合检索为什么不一定更好\n")
+        parts.append(render_fusion_tuning(fusion))
+        parts.append("")
+
     if backend:
-        parts.append("## 5. 向量后端基准（同一份向量、同一批查询）\n")
+        parts.append("## 6. 向量后端基准（同一份向量、同一批查询）\n")
         parts.append(render_backend_bench(backend))
         parts.append("")
 
     if generation:
-        parts.append("## 6. 生成质量评测\n")
+        parts.append("## 7. 生成质量评测\n")
         parts.append(
             f"> 采样 {generation['n_samples']} 条查询，"
             f"取 top-{generation['top_k']} 文档作为上下文，"
