@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# 数据与产物（体积大 / 可重建，不入库）
+data/raw/
+data/processed/
+data/milvus/
+artifacts/
+outputs/
+*.db
+*.sqlite*
+
+# 日志与临时
+*.log
+.DS_Store
