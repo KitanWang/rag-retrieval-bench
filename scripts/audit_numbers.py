@@ -39,15 +39,38 @@ def collect_allowed(artifact_dir: Path) -> set[str]:
     def add_ms(v: float) -> None:
         allowed.update({f"{v:.1f} ms", f"{v:.0f} ms", f"{v:.3f} ms"})
 
-    for name in ("retrieval_results.json", "fusion_tuning.json", "generation_results.json",
-                 "backend_bench.json"):
-        path = artifact_dir / name
-        if not path.exists():
-            continue
-        data = json.loads(path.read_text(encoding="utf-8"))
+    # 优先读 artifacts/（完整实验输出）；CI 里只有 reports/ 下的归档快照，
+    # 两者的结构一致（summary_* 是去掉逐条明细后的精简版）
+    candidates = {
+        "retrieval": ["retrieval_results.json", "summary_retrieval.json"],
+        "fusion": ["fusion_tuning.json"],
+        "generation": ["generation_results.json", "summary_generation.json"],
+        "backend": ["backend_bench.json"],
+    }
+    search_dirs = [artifact_dir, artifact_dir.parent / "reports"]
 
-        if name == "retrieval_results.json":
-            for method in data.get("results", {}).values():
+    resolved: dict[str, Path] = {}
+    for key, names in candidates.items():
+        for name in names:
+            for d in search_dirs:
+                cand = d / name
+                if cand.exists():
+                    resolved[key] = cand
+                    break
+            if key in resolved:
+                break
+
+    for key, path in resolved.items():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        name = key
+
+        if name == "retrieval":
+            # 兼容两种结构：完整输出有 results 外壳，归档快照把方法直接放顶层
+            methods = data.get("results") or {
+                k: v for k, v in data.items()
+                if not k.startswith("_") and isinstance(v, dict)
+            }
+            for method in methods.values():
                 for v in method.get("metrics", {}).values():
                     add_pct(v)
                 for v in method.get("latency_ms", {}).values():
@@ -62,23 +85,28 @@ def collect_allowed(artifact_dir: Path) -> set[str]:
                     # p50 相对节省 = 1 - router_p50 / 全量重排的均值
                     p50 = method.get("latency_ms", {}).get("p50")
                     total = saving.get("all_rerank_total_ms")
-                    n = data.get("dataset", {}).get("queries") or 300
+                    ds = data.get("dataset") or data.get("_dataset") or {}
+                    n = ds.get("queries") or 300
                     if p50 and total:
                         add_pct(round(1 - p50 / (total / n), 4))
 
-        elif name == "fusion_tuning.json":
+        elif name == "fusion":
             for row in data.get("rows", []):
                 add_pct(row["recall"])
                 add_pct(row["ndcg"])
                 add_pct(row["mrr"])
 
-        elif name == "generation_results.json":
-            for method in data.get("results", {}).values():
+        elif name == "generation":
+            methods = data.get("results") or {
+                k: v for k, v in data.items()
+                if not k.startswith("_") and isinstance(v, dict)
+            }
+            for method in methods.values():
                 for key in ("faithfulness", "relevancy", "context_precision",
                             "retrieval_hit_rate", "refusal_rate", "error_rate"):
                     add_pct(method[key])
 
-        elif name == "backend_bench.json":
+        elif name == "backend":
             for row in data.get("results", []):
                 for key in ("p50_ms", "p95_ms", "mean_ms"):
                     add_ms(row[key])
