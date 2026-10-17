@@ -228,6 +228,8 @@ Milvus 后端保留用于交叉验证「换回生产同款向量库后结论是�
 - **指标与检索解耦**：检索器只返回有序文档 id，指标统一在 `metrics.py` 计算，
   新增方案不需要改评测代码，也不会出现口径漂移。
 - **报告自动生成**：README 里的数字全部来自 `artifacts/*.json`，杜绝手填数字对不上代码。
+- **数字溯源审计**：`scripts/audit_numbers.py` 会扫描文档里的每个百分比与毫秒值，
+  检查它能否在实验结果中溯源，**已接入 CI**——文档数字一旦与实验脱节，CI 直接失败。
 - **向量后端可切换且可基准**：`scripts/bench_vector_backends.py` 在同一份向量上对比
   FAISS HNSW / FAISS FlatIP / Milvus Lite，并校验三者 top-1 一致——
   性能数字不是拍的，是脚本跑出来的（见 `artifacts/backend_bench.json`）。

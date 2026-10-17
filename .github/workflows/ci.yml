@@ -42,6 +42,13 @@ jobs:
       - name: Run tests
         run: uv run pytest tests -q
 
+      # README 里的每个数字都必须能在 artifacts/*.json 中找到来源
+      - name: Audit README numbers against experiment outputs
+        run: uv run python scripts/audit_numbers.py README.md --allow "3.1 ms" "11%"
+
+      - name: Check scripts compile
+        run: uv run python -m compileall -q scripts
+
       - name: 冒烟检查脚本可解析（不跑模型）
         run: |
           # 评测脚本依赖 torch/faiss，CI 里只做语法与导入检查，
