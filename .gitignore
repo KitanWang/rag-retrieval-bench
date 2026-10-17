@@ -10,10 +10,12 @@ venv/
 data/raw/
 data/processed/
 data/milvus/
-# artifacts 里只保留可复现的报告快照，其余（排序明细等）不入库
+# artifacts 只保留「报告直接引用的小体积证据」，大体积明细（含每条查询的排序结果）不入库。
+# 取舍标准：读报告的人能否仅凭入库文件核对到每个数字。
 artifacts/*
-!artifacts/RESULTS.md
-!artifacts/backend_bench.json
+!artifacts/RESULTS.md          # 报告快照（由 ragbench report 生成）
+!artifacts/backend_bench.json  # 向量后端基准（约 1 KB）
+!artifacts/fusion_tuning.json  # 融合策略扫描（约 3 KB）
 outputs/
 *.db
 *.sqlite*

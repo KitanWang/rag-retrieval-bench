@@ -30,8 +30,6 @@ import json
 import sys
 from pathlib import Path
 
-import numpy as np
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -51,7 +49,7 @@ def run(cfg_path: str, out_path: Path, max_queries: int | None) -> int:
     qids = [q for q in queries["qid"].tolist() if q in gold]
     if max_queries:
         qids = qids[:max_queries]
-    qtexts = dict(zip(queries["qid"], queries["text"]))
+    qtexts = dict(zip(queries["qid"], queries["text"], strict=False))
     print(f"语料 {len(ids)} / 查询 {len(qids)}", flush=True)
 
     bundle = RetrieverBundle(cfg, ids, texts)

@@ -37,7 +37,16 @@ jobs:
           uv pip install -e . --no-deps
 
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts
 
       - name: Run tests
         run: uv run pytest tests -q
+
+      - name: 冒烟检查脚本可解析（不跑模型）
+        run: |
+          # 评测脚本依赖 torch/faiss，CI 里只做语法与导入检查，
+          # 避免因为本地改了 API 却忘记同步到脚本（这类问题只在别人复现时才暴露）
+          for f in scripts/*.py; do
+            uv run python -c "import ast,sys; ast.parse(open('$f').read())" || exit 1
+          done
+          echo "所有 scripts/*.py 语法检查通过"
