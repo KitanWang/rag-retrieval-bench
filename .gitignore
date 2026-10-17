@@ -10,7 +10,10 @@ venv/
 data/raw/
 data/processed/
 data/milvus/
-artifacts/
+# artifacts 里只保留可复现的报告快照，其余（排序明细等）不入库
+artifacts/*
+!artifacts/RESULTS.md
+!artifacts/backend_bench.json
 outputs/
 *.db
 *.sqlite*
