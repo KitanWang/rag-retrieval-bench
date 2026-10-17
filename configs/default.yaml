@@ -9,8 +9,10 @@ data:
   seed: 42
 
 retriever:
-  embed_model: BAAI/bge-m3
-  embed_batch_size: 16
+  # CPU 友好：BGE-small-zh 在 20k 语料上约 10 分钟编码完
+  # （BGE-M3 在纯 CPU 上实测 0.7 docs/s，同等规模要 7 小时以上，已记录在报告中）
+  embed_model: BAAI/bge-small-zh-v1.5
+  embed_batch_size: 32
   rerank_model: BAAI/bge-reranker-base
   rerank_batch_size: 16
   rerank_top_k: 50
