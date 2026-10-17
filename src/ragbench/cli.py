@@ -42,8 +42,27 @@ def cmd_prepare(cfg: Config, args: argparse.Namespace) -> int:
 def cmd_retrieve(cfg: Config, args: argparse.Namespace) -> int:
     from ragbench.pipeline import run_retrieval_eval
 
-    out = run_retrieval_eval(cfg, methods=args.methods)
-    logger.info("检索评测完成，结果见 %s", cfg.output_dir / "retrieval_results.json")
+    run_retrieval_eval(cfg, methods=args.methods)
+    from ragbench.report import build_report
+
+    build_report(cfg, cfg.output_dir / "RESULTS.md")
+    logger.info("检索评测完成，结果见 %s", cfg.output_dir / "RESULTS.md")
+    return 0
+
+
+def cmd_generate(cfg: Config, args: argparse.Namespace) -> int:
+    from ragbench.genpipeline import run_generation_eval
+
+    run_generation_eval(cfg, methods=args.methods, sample_size=args.sample)
+    logger.info("生成评测完成，结果见 %s", cfg.output_dir / "generation_results.json")
+    return 0
+
+
+def cmd_report(cfg: Config, args: argparse.Namespace) -> int:
+    from ragbench.report import build_report
+
+    path = build_report(cfg, cfg.output_dir / "RESULTS.md")
+    logger.info("报告已生成：%s", path)
     return 0
 
 
@@ -77,6 +96,14 @@ def build_parser() -> argparse.ArgumentParser:
     sr = sub.add_parser("retrieve", help="跑检索评测")
     sr.add_argument("--methods", nargs="*", default=None)
     sr.set_defaults(func=cmd_retrieve)
+
+    sg = sub.add_parser("generate", help="跑生成质量评测（需要 LLM API Key）")
+    sg.add_argument("--methods", nargs="*", default=None)
+    sg.add_argument("--sample", type=int, default=None, help="采样查询数")
+    sg.set_defaults(func=cmd_generate)
+
+    sp2 = sub.add_parser("report", help="生成 Markdown 报告")
+    sp2.set_defaults(func=cmd_report)
     return p
 
 
