@@ -87,6 +87,69 @@ def render_route_distribution(payload: dict) -> str:
     return "\n".join(lines)
 
 
+def render_route_latency(payload: dict) -> str:
+    """按路由分组展示延迟，并给出「相对全量重排省了多少」。
+
+    单看整体 p50 会误判：本数据集中位数落在重排区间（>50% 查询升级），
+    所以整体 p50 接近全量重排，看起来「路由没用」。
+    真实情况是延迟呈**双峰分布**——走融合的是毫秒级，走重排的是秒级。
+    """
+    router = payload["results"].get("router", {})
+    by_route = router.get("latency_by_route")
+    if not by_route:
+        return ""
+    lines = [
+        "| 路由分支 | 查询数 | 占比 | 平均延迟 | p50 | p95 |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for name, d in by_route.items():
+        lines.append(
+            f"| {METHOD_LABELS.get(name, name)} | {d['n']} | {_pct(d['ratio'])} "
+            f"| {d['mean']:.0f} ms | {d['p50']:.0f} ms | {d['p95']:.0f} ms |"
+        )
+    saving = router.get("cost_saving")
+    if saving:
+        lines.append("")
+        lines.append(
+            f"**单查询平均延迟 {router['latency_ms']['mean']:.0f} ms**；"
+            f"若所有查询都走重排，总耗时需 {saving['all_rerank_total_ms']:.0f} ms，"
+            f"实际 {saving['actual_total_ms']:.0f} ms，**节省 {saving['saved_pct']:.1f}%**。"
+        )
+        lines.append("")
+        lines.append(
+            "> 注意：整体 p50 落在重排区间（因超过半数查询升级），"
+            "这与「路由没有节省」是不同的结论——节省体现在**总耗时**，而不是中位数。"
+        )
+    return "\n".join(lines)
+
+
+def render_backend_bench(payload: dict) -> str:
+    """渲染向量后端基准（如果跑过 scripts/bench_vector_backends.py）。"""
+    results = payload.get("results") or []
+    if not results:
+        return ""
+    lines = [
+        f"> 语料 {payload['docs']:,} 篇 / 计时查询 {payload['queries']} 条 × "
+        f"{results[0].get('n_queries', 0) // max(1, payload['queries'])} 轮，"
+        f"k={payload['k']}，嵌入模型 `{payload.get('embed_model', '')}`。\n",
+        "| 后端 | 建索引 | p50 | p95 | top-1 与 FAISS HNSW 一致 |",
+        "| :--- | ---: | ---: | ---: | :--- |",
+    ]
+    for r in results:
+        match = "-" if "top1_match" not in r else ("是" if r["top1_match"] else "**否**")
+        lines.append(
+            f"| {r['backend']} | {r['build_s']} s | {r['p50_ms']} ms "
+            f"| {r['p95_ms']} ms | {match} |"
+        )
+    lines.append("")
+    lines.append(
+        "> Milvus Lite 是进程内嵌入式实现，每次检索都要走完整的 gRPC/计划器路径；"
+        "在纯 CPU、无独立索引服务进程的场景下，它比进程内 FAISS 慢三个数量级以上。"
+        "**评测默认用 FAISS**，Milvus 后端保留用于验证「换回生产同款向量库后结论是否一致」。"
+    )
+    return "\n".join(lines)
+
+
 def render_generation_table(payload: dict) -> str:
     results = payload["results"]
     order = [m for m in METHOD_ORDER if m in results]
@@ -107,6 +170,7 @@ def render_generation_table(payload: dict) -> str:
 def build_report(cfg, out_path: Path) -> Path:
     retrieval = _load(cfg.output_dir / "retrieval_results.json")
     generation = _load(cfg.output_dir / "generation_results.json")
+    backend = _load(cfg.output_dir / "backend_bench.json")
     stats = _load(cfg.data.processed_dir / "stats.json") or {}
 
     parts: list[str] = []
@@ -139,12 +203,23 @@ def build_report(cfg, out_path: Path) -> Path:
 
         route_md = render_route_distribution(retrieval)
         if route_md:
-            parts.append("## 4. 策略路由的分支分布\n")
+            parts.append("## 4. 策略路由\n")
+            parts.append("### 4.1 分支分布\n")
             parts.append(route_md)
             parts.append("")
+            route_lat = render_route_latency(retrieval)
+            if route_lat:
+                parts.append("### 4.2 各分支的延迟与节省\n")
+                parts.append(route_lat)
+                parts.append("")
+
+    if backend:
+        parts.append("## 5. 向量后端基准（同一份向量、同一批查询）\n")
+        parts.append(render_backend_bench(backend))
+        parts.append("")
 
     if generation:
-        parts.append("## 5. 生成质量评测\n")
+        parts.append("## 6. 生成质量评测\n")
         parts.append(
             f"> 采样 {generation['n_samples']} 条查询，取 top-{generation['top_k']} 文档作为上下文，"
             f"模型 `{generation['model']}`，温度 {generation['temperature']}。\n"

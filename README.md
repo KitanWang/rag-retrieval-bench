@@ -47,14 +47,17 @@ uv pip install --python venv/bin/python -e ".[embed,dev]"
 # 2. 下载并构建评测集（约 60MB 公开数据）
 PYTHONPATH=src venv/bin/python -m ragbench.cli --config configs/default.yaml prepare
 
-# 3. 跑五种方案的检索评测（纯 CPU 约 15–20 分钟）
+# 3. 跑五种方案的检索评测（纯 CPU 约 50 分钟，其中重排占 36 分钟）
 PYTHONPATH=src venv/bin/python -m ragbench.cli --config configs/default.yaml retrieve
 
 # 4. 生成 Markdown 报告
 PYTHONPATH=src venv/bin/python -m ragbench.cli report
 ```
 
-冒烟测试（500 篇语料、20 条查询，几分钟出结果）：
+**为什么重排这么慢**：`bge-reranker-base` 是 cross-encoder，每条查询要对 50 个候选
+逐对打分，CPU 上约 7 秒/查询。300 条就是半小时——这正是本项目要量化的「代价」。
+
+只想快速看链路是否通，用冒烟配置（500 篇语料、20 条查询，几分钟出结果）：
 
 ```bash
 PYTHONPATH=src venv/bin/python -m ragbench.cli --config configs/smoke.yaml all
@@ -124,6 +127,9 @@ LLM 判定失败时会降级到二元组覆盖率启发式，保证整批评测�
 - **指标与检索解耦**：检索器只返回有序文档 id，指标统一在 `metrics.py` 计算，
   新增方案不需要改评测代码，也不会出现口径漂移。
 - **报告自动生成**：README 里的数字全部来自 `artifacts/*.json`，杜绝手填数字对不上代码。
+- **向量后端可切换且可基准**：`scripts/bench_vector_backends.py` 在同一份向量上对比
+  FAISS HNSW / FAISS FlatIP / Milvus Lite，并校验三者 top-1 一致——
+  性能数字不是拍的，是脚本跑出来的（见 `artifacts/backend_bench.json`）。
 
 ---
 
@@ -134,7 +140,7 @@ src/ragbench/
   config.py      实验配置（默认值 < YAML < 环境变量）
   data.py        数据集下载、子采样、qrels 归一化
   sparse.py      jieba 分词 + BM25 倒排索引
-  index.py       Milvus Lite 向量索引
+  index.py       向量索引（FAISS 默认 / Milvus Lite 可选）
   embedding.py   句向量编码与 cross-encoder 重排（含缓存）
   retrievers.py  五种检索策略 + 融合函数 + 级联路由
   metrics.py     Recall / MRR / nDCG / HitRate
@@ -142,7 +148,7 @@ src/ragbench/
   generation.py  生成质量评测（自实现忠实度等）
   report.py      Markdown 报告生成
   llm.py         OpenAI 兼容 LLM 客户端（并发 + 重试）
-tests/           32 个单元测试
+tests/           89 个单元测试
 configs/         默认 / 冒烟两套配置
 ```
 
