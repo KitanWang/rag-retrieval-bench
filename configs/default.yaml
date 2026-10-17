@@ -16,6 +16,9 @@ retriever:
   rerank_model: BAAI/bge-reranker-base
   rerank_batch_size: 16
   rerank_top_k: 50
+  # 向量后端：faiss（本地高性能）/ milvus（与生产同 SDK，单文件模式在 CPU 上很慢）
+  vector_backend: faiss
+  index_type: HNSW
   bm25_k1: 0.9
   bm25_b: 0.4
   fusion: rrf

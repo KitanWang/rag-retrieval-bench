@@ -22,7 +22,6 @@ import numpy as np
 
 from ragbench.config import Config
 from ragbench.embedding import Embedder, Reranker
-from ragbench.index import VectorIndex
 from ragbench.sparse import BM25Index
 from ragbench.types import Hit, RetrievalResult
 
@@ -112,7 +111,7 @@ class DenseRetriever(_BaseRetriever):
 
     name = "dense"
 
-    def __init__(self, cfg: Config, corpus_ids, corpus_texts, embedder: Embedder, index: VectorIndex):
+    def __init__(self, cfg: Config, corpus_ids, corpus_texts, embedder: Embedder, index):
         super().__init__(cfg, corpus_ids, corpus_texts)
         self.embedder = embedder
         self.index = index
@@ -126,7 +125,7 @@ class DenseRetriever(_BaseRetriever):
     def search(self, query: str, top_k: int = 10) -> list[Hit]:
         vec = self._encode_query(query)
         raw = self.index.search(vec, top_k=top_k)
-        return [Hit(h.idx, h.score) for h in raw]
+        return [Hit(pid, score) for pid, score in raw]
 
 
 class BM25Retriever(_BaseRetriever):

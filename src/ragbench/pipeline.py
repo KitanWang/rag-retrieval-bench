@@ -18,7 +18,7 @@ import numpy as np
 from ragbench import data
 from ragbench.config import Config
 from ragbench.embedding import Embedder, Reranker
-from ragbench.index import VectorIndex
+from ragbench.index import build_vector_index
 from ragbench.metrics import evaluate_with_details
 from ragbench.retrievers import (
     BM25Retriever,
@@ -63,8 +63,7 @@ class RetrieverBundle:
             "文档向量完成，用时 %.1fs，shape=%s", time.perf_counter() - t0, embeddings.shape
         )
 
-        self.index = VectorIndex(rcfg.milvus_path, collection=rcfg.collection_name)
-        self.index.build(embeddings, corpus_ids, overwrite=True)
+        self.index = build_vector_index(cfg, embeddings, corpus_ids)
 
         self._build_retrievers()
 
@@ -91,7 +90,9 @@ class RetrieverBundle:
         return table[name]
 
     def close(self) -> None:
-        self.index.close()
+        close = getattr(self.index, "close", None)
+        if callable(close):
+            close()
 
 
 def run_retrieval_eval(

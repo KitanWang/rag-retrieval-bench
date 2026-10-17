@@ -67,7 +67,11 @@ class RetrieverConfig:
     rrf_k: int = 60
     hybrid_alpha: float = 0.5  # weighted 融合时稠密分支的权重
 
-    # 向量库（Milvus Lite 单文件，免部署）
+    # 向量后端：faiss（本地高性能）或 milvus（与生产同 SDK）
+    # 实测同一份 2 万条 512 维向量：FAISS HNSW ~0.14ms/次，Milvus Lite ~1700ms/次
+    vector_backend: str = "faiss"
+    index_type: str = "HNSW"
+    hnsw_m: int = 16
     milvus_path: Path = ROOT / "data" / "milvus" / "bench.db"
     collection_name: str = "ragbench_docs"
 
