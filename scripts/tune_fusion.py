@@ -37,7 +37,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from ragbench.config import Config  # noqa: E402
 from ragbench.data import gold_map, load_processed  # noqa: E402
-from ragbench.metrics import evaluate  # noqa: E402
+from ragbench.metrics import evaluate_rankings  # noqa: E402
 from ragbench.pipeline import RetrieverBundle  # noqa: E402
 from ragbench.retrievers import reciprocal_rank_fusion, weighted_fusion  # noqa: E402
 
