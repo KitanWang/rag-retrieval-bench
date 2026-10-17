@@ -263,13 +263,31 @@ class TestRouterCascade:
         assert any(p.startswith("d0") or p in {f"d{i}" for i in range(10)} for p in pids)
         assert any(p in {f"d{i}" for i in range(10, 20)} for p in pids)
 
-    def test_upgrade_reranks_fewer_candidates_than_full_rerank(self, stub_router):
-        """路由升级只重排 rerank_candidates 个候选，必须少于独立重排的 rerank_top_k。"""
+    def test_upgrade_reranks_same_candidate_count_as_full_rerank(self, stub_router):
+        """路由升级送进重排的候选数，必须与独立重排方案相同。
+
+        ## 这条测试改过一次，原因值得记下来
+
+        原来的断言是 `rerank_candidates < rerank_top_k`——即「路由升级应当少重排一些」。
+        听起来合理，实际却制造了一个**不公平的对比**：
+        `hybrid_rerank` 重排 50 篇、`router` 只重排 10 篇，于是 router 的延迟天然低 5 倍。
+        这个「节省」完全来自少干活，不是路由策略的功劳，质量下降（Recall 0.74 vs 0.81）
+        也被掩盖成了「用一点质量换大量延迟」。
+
+        正确的对比条件：**同样的候选规模**下，只在「哪些查询需要升级」这一维度上比较。
+        候选数不同时，任何延迟/质量的差异都不可归因。
+        """
         router, rerank, cfg = stub_router
         router.decide("任意查询", top_k=10)
         assert rerank.calls, "升级分支未被触发，测试前提不成立"
-        assert rerank.calls[0] <= cfg.router.rerank_candidates
-        assert cfg.router.rerank_candidates < cfg.retriever.rerank_top_k
+        # stub 语料只有 20 篇，两路各返回 10 篇且互不重叠，故融合后上限是 20。
+        # 断言「等于 min(配置, 可用候选数)」而不是硬编码，既能钉住「用满候选池」，
+        # 又不会因为 stub 数据规模而与配置脱钩。
+        expected = min(cfg.router.rerank_candidates, 20)
+        assert rerank.calls[0] == expected, (
+            f"升级时应当把所有可用候选（{expected}）都送去重排，实际只送了 {rerank.calls[0]}"
+        )
+        assert cfg.router.rerank_candidates == cfg.retriever.rerank_top_k
 
     def test_agreement_path_skips_rerank(self):
         """两路完全一致时不应触发重排。"""
@@ -299,3 +317,39 @@ class TestRouterCascade:
         route, _ = router.decide("任意查询", top_k=10)
         assert route == "hybrid"
         assert rerank.calls == 0
+
+
+def test_router_rerank_candidates_matches_rerank_top_k() -> None:
+    """router 的升级候选数必须与独立重排方案一致。
+
+    这条测试来自一次**实验设计缺陷**：`router.rerank_candidates` 默认是 10，
+    而 `retriever.rerank_top_k` 是 50。于是 router 每次只重排 10 篇，
+    延迟看起来比 hybrid_rerank 低 5 倍（1.6s vs 6.9s），质量也更差
+    （Recall@5 0.7425 vs 0.8095）。
+
+    当时那份报告会得出「路由省了 72% 延迟」的错误结论——实际上省下来的延迟
+    完全来自「少重排 40 篇文档」，和路由策略本身无关。
+    这类「对比条件不一致」的坑在调参实验里极常见，必须用测试钉死。
+    """
+    from ragbench.config import Config
+
+    cfg = Config.load("configs/default.yaml")
+    assert cfg.router.rerank_candidates == cfg.retriever.rerank_top_k, (
+        f"router 的重排候选数（{cfg.router.rerank_candidates}）"
+        f"必须等于 rerank_top_k（{cfg.retriever.rerank_top_k}），否则两种方案的对比不公平"
+    )
+
+
+def test_router_upgrade_uses_full_candidate_pool() -> None:
+    """router 升级时，实际送进 cross-encoder 的候选数应当等于 rerank_candidates。"""
+    import inspect
+
+    from ragbench import retrievers
+
+    src = inspect.getsource(retrievers.RouterRetriever.decide)
+    assert "rerank_candidates" in src, "router 的升级路径应当读取 rerank_candidates"
+    # 回归点：不能出现「首尾相接后截断」这种让稠密分支占满名额的写法
+    assert "d_hits + s_hits" not in src, (
+        "升级路径不能直接把两路候选首尾相接——那会让稠密分支占满名额，"
+        "稀疏分支的候选全被丢掉，等于没做混合"
+    )

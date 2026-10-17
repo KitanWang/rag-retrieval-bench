@@ -116,7 +116,8 @@ class RouterConfig:
     # 稀疏与稠密的一致性低于该阈值时升级重排（0~1，越大越保守）
     rerank_gap: float = 0.55
     # 升级重排时送进 cross-encoder 的候选数（比独立重排方案少，路由才有成本优势）
-    rerank_candidates: int = 10
+    # 与 retriever.rerank_top_k 对齐，保证 router 与 hybrid_rerank 在同一候选规模下比较
+    rerank_candidates: int = 50
 
 
 @dataclass

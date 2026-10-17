@@ -34,5 +34,9 @@ router:
   long_query_chars: 14
   code_like_ratio: 0.15
   rerank_gap: 0.55
-  # 路由升级重排时只重排这么多候选（独立重排方案用的是 rerank_top_k=50）
-  rerank_candidates: 10
+  # 升级重排时送多少候选给 cross-encoder。
+  # **必须与 retriever.rerank_top_k 一致**，否则 router 与 hybrid_rerank 的
+  # 「质量」和「延迟」都不是在同一条件下比较的——早期设成 10，
+  # 导致 router 只重排 10 篇，延迟看起来比 hybrid_rerank（重排 50 篇）低 5 倍，
+  # 但那不是路由省下来的，是少干活换来的，质量自然也更差。
+  rerank_candidates: 50
