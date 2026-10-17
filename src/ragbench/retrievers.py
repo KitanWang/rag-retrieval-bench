@@ -308,20 +308,19 @@ class RouterRetriever(_BaseRetriever):
         d_hits = self.dense.search(query, top_k=pool)
         s_hits = self.sparse.search(query, top_k=pool)
         agree = self.router.agreement(d_hits, s_hits)
-        # 一致性高 → 直接融合；否则把已有候选交给 cross-encoder 仲裁
-        if agree >= self.cfg.router.rerank_gap:
-            fused = (
-                weighted_fusion(
-                    [d_hits, s_hits],
-                    [self.rcfg.hybrid_alpha, 1 - self.rcfg.hybrid_alpha],
-                    top_k,
-                )
-                if self.rcfg.fusion == "weighted"
-                else reciprocal_rank_fusion([d_hits, s_hits], k=self.rcfg.rrf_k)[:top_k]
-            )
-            return "hybrid", fused
 
-        reranked = self.hybrid_rerank.rerank_hits(query, d_hits + s_hits, top_k)
+        # 无论走哪条分支，都先用 RRF 融合成一路候选。
+        # 早期版本这里直接把 dense + sparse 两个列表首尾相接再截断，
+        # 结果稠密分支占满名额、稀疏分支的候选全被丢掉，
+        # 等于「升级重排」其实只重排了向量结果，路由也就失去了意义。
+        fused_all = reciprocal_rank_fusion([d_hits, s_hits], k=self.rcfg.rrf_k)
+
+        if agree >= self.cfg.router.rerank_gap:
+            return "hybrid", fused_all[:top_k]
+
+        # 升级分支只重排更少的候选：这是路由能省钱的关键
+        n_cand = max(top_k, self.cfg.router.rerank_candidates)
+        reranked = self.hybrid_rerank.rerank_hits(query, fused_all[:n_cand], top_k)
         return "hybrid_rerank", reranked
 
     def search(self, query: str, top_k: int = 10) -> list[Hit]:

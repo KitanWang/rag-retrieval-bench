@@ -2,13 +2,16 @@
 
 **为什么保留两个后端**（这是本项目一个实测驱动的设计决策）：
 
-在同一台机器、同一份 2 万条 512 维向量上实测单次 top-10 检索：
+在同一台机器、同一份 2 万条 512 维向量、60 条查询 × 2 轮上实测单次 top-10 检索
+（脚本：`scripts/bench_vector_backends.py`，结果：`artifacts/backend_bench.json`）：
 
-| 后端 | 单次检索耗时 |
-| :--- | ---: |
-| FAISS HNSW（M=16） | ~0.14 ms |
-| FAISS FlatIP（精确） | ~2.7 ms |
-| Milvus Lite（单文件模式） | ~1700 ms |
+| 后端 | 建索引 | p50 | p95 |
+| :--- | ---: | ---: | ---: |
+| FAISS HNSW（M=16） | 0.85 s | **0.24 ms** | 0.34 ms |
+| FAISS FlatIP（精确） | 0.01 s | 0.85 ms | 4.91 ms |
+| Milvus Lite（单文件模式） | 5.28 s | **1520 ms** | 2006 ms |
+
+**三个后端的 top-1 结果完全一致**——性能差异不是靠牺牲召回换来的。
 
 Milvus Lite 是**进程内嵌入式**实现，每次检索都要经过完整的 gRPC/计划器路径，
 在纯 CPU、无索引服务进程的场景下开销极大。因此：
@@ -42,6 +45,54 @@ class FaissIndex:
         self.hnsw_m = hnsw_m
         self._index = None
         self.ids: list[str] = []
+
+    def _create_index(self, dim: int) -> None:
+        """建向量索引；集合已有索引时先删再建。
+
+        ## 为什么这里要单独一段
+
+        `MilvusClient.create_collection()` 会**自动**为向量字段建一个默认索引
+        （AUTOINDEX）。之后直接 `create_index` 会报
+        `code=35: index already exists for field 'vector'`。
+
+        第一版把整个 `create_index` 包在 `try/except: warning` 里，
+        结果是**每次跑都打印一条吓人的 ERROR 级 traceback**，实际上功能正常
+        （因为默认索引本来就能用）。这类「报错但没事」的噪音很危险——
+        真正的故障会被淹在这条错误里。所以这里显式处理：
+        先看现有索引，是要换的类型就先 drop，是同一个就直接跳过。
+        """
+        try:
+            existing = self.client.list_indexes(self.collection)
+        except Exception:  # pragma: no cover - 旧版本没有该方法
+            existing = []
+
+        if existing:
+            try:
+                described = self.client.describe_index(self.collection, existing[0])
+                current_type = str(described.get("index_type", "")).upper()
+            except Exception:  # pragma: no cover
+                current_type = ""
+            if current_type == self.index_type.upper():
+                logger.info("向量索引已存在（%s），跳过创建", self.index_type)
+                return
+            try:
+                self.client.release_collection(self.collection)
+            except Exception:
+                pass
+            self.client.drop_index(self.collection, existing[0])
+            logger.info("已删除旧索引（%s），准备重建为 %s", current_type or "unknown", self.index_type)
+
+        from pymilvus import MilvusClient
+
+        params = MilvusClient.prepare_index_params()
+        params.add_index(
+            field_name="vector",
+            index_type=self.index_type,
+            metric_type=self.metric,
+            params={"M": 16, "efConstruction": 128} if self.index_type == "HNSW" else {},
+        )
+        self.client.create_index(self.collection, params)
+        logger.info("向量索引创建完成：%s（metric=%s，dim=%d）", self.index_type, self.metric, dim)
 
     def build(self, embeddings: np.ndarray, ids: list[str]) -> None:
         import faiss
@@ -115,6 +166,54 @@ class MilvusIndex:
             self._client = MilvusClient(str(self.db_path))
         return self._client
 
+    def _create_index(self, dim: int) -> None:
+        """建向量索引；集合已有索引时先删再建。
+
+        ## 为什么这里要单独一段
+
+        `MilvusClient.create_collection()` 会**自动**为向量字段建一个默认索引
+        （AUTOINDEX）。之后直接 `create_index` 会报
+        `code=35: index already exists for field 'vector'`。
+
+        第一版把整个 `create_index` 包在 `try/except: warning` 里，
+        结果是**每次跑都打印一条吓人的 ERROR 级 traceback**，实际上功能正常
+        （因为默认索引本来就能用）。这类「报错但没事」的噪音很危险——
+        真正的故障会被淹在这条错误里。所以这里显式处理：
+        先看现有索引，是要换的类型就先 drop，是同一个就直接跳过。
+        """
+        try:
+            existing = self.client.list_indexes(self.collection)
+        except Exception:  # pragma: no cover - 旧版本没有该方法
+            existing = []
+
+        if existing:
+            try:
+                described = self.client.describe_index(self.collection, existing[0])
+                current_type = str(described.get("index_type", "")).upper()
+            except Exception:  # pragma: no cover
+                current_type = ""
+            if current_type == self.index_type.upper():
+                logger.info("向量索引已存在（%s），跳过创建", self.index_type)
+                return
+            try:
+                self.client.release_collection(self.collection)
+            except Exception:
+                pass
+            self.client.drop_index(self.collection, existing[0])
+            logger.info("已删除旧索引（%s），准备重建为 %s", current_type or "unknown", self.index_type)
+
+        from pymilvus import MilvusClient
+
+        params = MilvusClient.prepare_index_params()
+        params.add_index(
+            field_name="vector",
+            index_type=self.index_type,
+            metric_type=self.metric,
+            params={"M": 16, "efConstruction": 128} if self.index_type == "HNSW" else {},
+        )
+        self.client.create_index(self.collection, params)
+        logger.info("向量索引创建完成：%s（metric=%s，dim=%d）", self.index_type, self.metric, dim)
+
     def build(self, embeddings: np.ndarray, ids: list[str]) -> None:
         dim = int(embeddings.shape[1])
         if self.client.has_collection(self.collection):
@@ -127,19 +226,7 @@ class MilvusIndex:
             id_type="string",
             max_length=64,
         )
-        try:
-            from pymilvus import MilvusClient
-
-            params = MilvusClient.prepare_index_params()
-            params.add_index(
-                field_name="vector",
-                index_type=self.index_type,
-                metric_type=self.metric,
-                params={"M": 16, "efConstruction": 128} if self.index_type == "HNSW" else {},
-            )
-            self.client.create_index(self.collection, params)
-        except Exception as exc:  # pragma: no cover - 版本差异
-            logger.warning("建 Milvus 索引失败，退回默认索引：%s", exc)
+        self._create_index(dim)
 
         rows = [{"id": pid, "vector": emb.tolist()} for pid, emb in zip(ids, embeddings)]
         for i in range(0, len(rows), 1000):

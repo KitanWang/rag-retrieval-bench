@@ -34,3 +34,5 @@ router:
   long_query_chars: 14
   code_like_ratio: 0.15
   rerank_gap: 0.55
+  # 路由升级重排时只重排这么多候选（独立重排方案用的是 rerank_top_k=50）
+  rerank_candidates: 10

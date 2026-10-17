@@ -146,6 +146,37 @@ def run_retrieval_eval(
                 from collections import Counter
 
                 results[name]["routes"] = dict(Counter(routes.values()))
+                # 按路由分组统计延迟——这是回答「路由到底省了多少」的关键数据。
+                #
+                # 只看整体 p50 会得出错误结论：本数据集上 54% 的查询仍升级到重排，
+                # 因此整体 p50 落在 4.8s，看起来和全量重排（5.8s）差不多，
+                # 会让人以为「路由没用」。真实情况是：
+                #   · 走 hybrid 的 111 条查询，延迟是毫秒级；
+                #   · 走 rerank 的 163 条查询，延迟是秒级。
+                # 两者是**双峰分布**，用单一中位数描述它是误导。
+                by_route: dict[str, list[float]] = {}
+                for qid, lat in zip(qids, latencies):
+                    by_route.setdefault(routes[qid] or "unknown", []).append(lat)
+                results[name]["latency_by_route"] = {
+                    route: {
+                        "n": len(vals),
+                        "ratio": round(len(vals) / len(latencies), 4),
+                        "mean": round(float(np.mean(vals)), 2),
+                        "p50": round(float(np.median(vals)), 2),
+                        "p95": round(float(np.percentile(vals, 95)), 2),
+                    }
+                    for route, vals in sorted(by_route.items())
+                }
+                # 理论节省：若全部走 rerank，总耗时是多少；实际是多少。
+                rerank_route = results[name]["latency_by_route"].get("hybrid_rerank")
+                if rerank_route:
+                    all_rerank = rerank_route["mean"] * len(latencies)
+                    actual = sum(latencies)
+                    results[name]["cost_saving"] = {
+                        "actual_total_ms": round(actual, 1),
+                        "all_rerank_total_ms": round(all_rerank, 1),
+                        "saved_pct": round((1 - actual / all_rerank) * 100, 1) if all_rerank else 0.0,
+                    }
             logger.info(
                 "   Recall@5=%.4f  MRR@5=%.4f  nDCG@5=%.4f  p50=%.1fms",
                 overall["recall@5"],

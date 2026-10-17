@@ -68,7 +68,8 @@ class RetrieverConfig:
     hybrid_alpha: float = 0.5  # weighted 融合时稠密分支的权重
 
     # 向量后端：faiss（本地高性能）或 milvus（与生产同 SDK）
-    # 实测同一份 2 万条 512 维向量：FAISS HNSW ~0.14ms/次，Milvus Lite ~1700ms/次
+    # 实测同一份 2 万条 512 维向量（scripts/bench_vector_backends.py）：
+    # FAISS HNSW p50 0.24ms/次，Milvus Lite p50 1520ms/次，top-1 结果一致
     vector_backend: str = "faiss"
     index_type: str = "HNSW"
     hnsw_m: int = 16
@@ -114,6 +115,8 @@ class RouterConfig:
     code_like_ratio: float = 0.15
     # 稀疏与稠密的一致性低于该阈值时升级重排（0~1，越大越保守）
     rerank_gap: float = 0.55
+    # 升级重排时送进 cross-encoder 的候选数（比独立重排方案少，路由才有成本优势）
+    rerank_candidates: int = 10
 
 
 @dataclass

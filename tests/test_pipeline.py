@@ -195,3 +195,107 @@ class TestConfig:
         import json
 
         json.dumps(Config().to_dict())  # Path 已转 str，不应抛异常
+
+
+class TestRouterCascade:
+    """路由升级分支的两个关键不变量。
+
+    这两条都是实测暴露出来的缺陷，必须用测试钉住，
+    否则后人改路由时很容易又退化成「等于没路由」。
+    """
+
+    @pytest.fixture
+    def stub_router(self):
+        from ragbench.retrievers import (
+            BM25Retriever,
+            DenseRetriever,
+            HybridRerankRetriever,
+            HybridRetriever,
+            RouterRetriever,
+        )
+
+        cfg = Config()
+        ids = [f"d{i}" for i in range(20)]
+        texts = [f"文档 {i}" for i in range(20)]
+
+        class _StubDense(DenseRetriever):
+            def __init__(self):  # noqa: D107 - 跳过真实模型加载
+                self.name = "dense"
+
+            def search(self, query, top_k=10):
+                # 稠密分支只返回 d0..d9
+                return [Hit(f"d{i}", 1.0 - i * 0.01) for i in range(min(10, top_k))]
+
+        class _StubSparse(BM25Retriever):
+            def __init__(self):  # noqa: D107
+                self.name = "bm25"
+                self.seen: list[list[Hit]] = []
+
+            def search(self, query, top_k=10):
+                # 稀疏分支只返回完全不同的 d10..d19
+                return [Hit(f"d{10 + i}", 1.0 - i * 0.01) for i in range(min(10, top_k))]
+
+        class _StubRerank(HybridRerankRetriever):
+            def __init__(self):  # noqa: D107
+                self.calls: list[int] = []
+
+            def rerank_hits(self, query, cand, top_k):
+                self.calls.append(len(cand))
+                return cand[:top_k]
+
+        dense = _StubDense()
+        sparse = _StubSparse()
+        rerank = _StubRerank()
+        hybrid = HybridRetriever(cfg, ids, texts, dense, sparse)
+        router = RouterRetriever(cfg, ids, texts, dense, sparse, hybrid, rerank)
+        return router, rerank, cfg
+
+    def test_upgrade_keeps_both_branches(self, stub_router):
+        """升级重排的候选必须同时包含稠密与稀疏两路的文档。
+
+        回归用例：早期实现直接把两个列表首尾相接再截断，
+        稀疏分支（排在后面）会被整段丢掉。
+        """
+        router, rerank, _ = stub_router
+        route, hits = router.decide("任意查询", top_k=10)
+        assert route == "hybrid_rerank"
+        pids = {h.pid for h in hits}
+        assert any(p.startswith("d0") or p in {f"d{i}" for i in range(10)} for p in pids)
+        assert any(p in {f"d{i}" for i in range(10, 20)} for p in pids)
+
+    def test_upgrade_reranks_fewer_candidates_than_full_rerank(self, stub_router):
+        """路由升级只重排 rerank_candidates 个候选，必须少于独立重排的 rerank_top_k。"""
+        router, rerank, cfg = stub_router
+        router.decide("任意查询", top_k=10)
+        assert rerank.calls, "升级分支未被触发，测试前提不成立"
+        assert rerank.calls[0] <= cfg.router.rerank_candidates
+        assert cfg.router.rerank_candidates < cfg.retriever.rerank_top_k
+
+    def test_agreement_path_skips_rerank(self):
+        """两路完全一致时不应触发重排。"""
+        from ragbench.retrievers import HybridRerankRetriever, HybridRetriever, RouterRetriever
+
+        cfg = Config()
+        ids = [f"d{i}" for i in range(20)]
+        texts = [f"文档 {i}" for i in range(20)]
+
+        class _Same:
+            name = "same"
+
+            def search(self, query, top_k=10):
+                return [Hit(f"d{i}", 1.0 - i * 0.01) for i in range(min(10, top_k))]
+
+        class _Rerank(HybridRerankRetriever):
+            def __init__(self):  # noqa: D107
+                self.calls = 0
+
+            def rerank_hits(self, query, cand, top_k):
+                self.calls += 1
+                return cand[:top_k]
+
+        rerank = _Rerank()
+        hybrid = HybridRetriever(cfg, ids, texts, _Same(), _Same())
+        router = RouterRetriever(cfg, ids, texts, _Same(), _Same(), hybrid, rerank)
+        route, _ = router.decide("任意查询", top_k=10)
+        assert route == "hybrid"
+        assert rerank.calls == 0
