@@ -57,13 +57,21 @@ class VectorIndex:
                 max_length=64,
             )
             if self.index_type:
-                idx_params = {"index_type": self.index_type, "metric_type": self.metric, "params": {}}
-                if self.index_type == "HNSW":
-                    idx_params["params"] = {"M": 16, "efConstruction": 128}
                 try:
-                    self.client.create_index(self.collection, idx_params)
+                    from pymilvus import MilvusClient
+
+                    params = MilvusClient.prepare_index_params()
+                    params.add_index(
+                        field_name="vector",
+                        index_type=self.index_type,
+                        metric_type=self.metric,
+                        params={"M": 16, "efConstruction": 128}
+                        if self.index_type == "HNSW"
+                        else {},
+                    )
+                    self.client.create_index(self.collection, params)
                 except Exception as exc:  # pragma: no cover - 不同版本 API 差异
-                    logger.warning("建向量索引失败，使用默认索引：%s", exc)
+                    logger.warning("建向量索引失败，退回默认索引：%s", exc)
         rows = [
             {"id": pid, "vector": emb.tolist()}
             for pid, emb in zip(ids, embeddings)

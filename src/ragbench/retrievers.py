@@ -191,12 +191,25 @@ class HybridRerankRetriever(_BaseRetriever):
     def search(self, query: str, top_k: int = 10) -> list[Hit]:
         recall_k = max(top_k, self.rcfg.rerank_top_k)
         cand = self.hybrid.search(query, top_k=recall_k)
+        return self.rerank_hits(query, cand, top_k)
+
+    def rerank_hits(self, query: str, cand: list[Hit], top_k: int) -> list[Hit]:
+        """对给定候选做 cross-encoder 重排（路由升级路径直接复用）。"""
         if not cand:
             return []
-        docs = [self.corpus_texts[self.id_to_idx[h.pid]] for h in cand]
+        # 去重后再重排：融合后的候选里常出现同一文档的两条记录
+        seen: set[str] = set()
+        uniq: list[Hit] = []
+        for h in cand:
+            if h.pid not in seen:
+                seen.add(h.pid)
+                uniq.append(h)
+        uniq = uniq[: max(top_k, self.rcfg.rerank_top_k)]
+        docs = [self.corpus_texts[self.id_to_idx[h.pid]] for h in uniq]
         scores = self.reranker.rerank(query, docs)
-        rescored = [Hit(h.pid, float(s)) for h, s in zip(cand, scores)]
-        rescored.sort(key=lambda h: -h.score)
+        rescored = sorted(
+            (Hit(h.pid, float(s)) for h, s in zip(uniq, scores)), key=lambda h: -h.score
+        )
         return rescored[:top_k]
 
 
@@ -204,15 +217,19 @@ class HybridRerankRetriever(_BaseRetriever):
 # 策略路由
 # --------------------------------------------------------------------------- #
 class QueryRouter:
-    """按查询的**可观测特征**选路，不训练分类器。
+    """级联路由：先用**廉价通道**拿信号，只在必要时升级到重排。
 
-    三条规则（都能在报告里用一句话解释清楚）：
+    设计动机（也是实测结论驱动的）：
+    cross-encoder 重排是这条链路上最贵的一步（CPU 上约 7 pair/s），
+    但它只对「稀疏与稠密给出不同答案」的查询才有价值。
+    所以这里不做「按查询长度猜」这种拍脑袋规则，而是**先看两个廉价通道是否一致**：
 
-    1. 含型号/编号/数字 → 稀疏检索更强（精确匹配），直接走 ``bm25``；
-    2. 长句、口语化描述 → 稠密语义更强，但为避免漏掉关键词，
-       走 ``hybrid`` 更稳；
-    3. 其余（短关键词查询）→ 稠密与稀疏都不可靠，走 ``hybrid_rerank``
-       用 cross-encoder 做精排，代价是延迟更高。
+    * 含型号/编号/数字 → 精确匹配场景，直接走 ``bm25``；
+    * 稀疏与稠密 top-k 重合度高、且 top1 分数接近 → 两路一致，走 ``hybrid``；
+    * 两路分歧（重合度低或 top1 差距大）→ 说明该查询本身有歧义，
+      升级到 ``hybrid_rerank`` 用 cross-encoder 仲裁。
+
+    这样重排只在少数查询上付费，且规则可解释、可单测。
     """
 
     def __init__(self, cfg: Config) -> None:
@@ -232,18 +249,36 @@ class QueryRouter:
             "has_digits": float(bool(re.search(r"\d", query))),
         }
 
-    def route(self, query: str) -> str:
+    def is_code_like(self, query: str) -> bool:
         f = self.features(query)
-        rcfg = self.cfg.router
-        if f["code_ratio"] >= rcfg.code_like_ratio and f["has_digits"]:
-            return "bm25"
-        if f["length"] >= rcfg.long_query_chars:
-            return "hybrid"
-        return "hybrid_rerank"
+        return f["code_ratio"] >= self.cfg.router.code_like_ratio and f["has_digits"] > 0
+
+    @staticmethod
+    def agreement(
+        dense: list[Hit], sparse: list[Hit], overlap_k: int = 3, gap: float = 0.6
+    ) -> float:
+        """两路的一致性，取值 [0,1]：top-k 重合度与 top1 得分一致度的加权。"""
+        if not dense or not sparse:
+            return 0.0
+        d_ids = {h.pid for h in dense[:overlap_k]}
+        s_ids = {h.pid for h in sparse[:overlap_k]}
+        union = d_ids | s_ids
+        overlap = len(d_ids & s_ids) / len(union) if union else 0.0
+
+        # top1 是否同一文档；是则再看次席分数是否拉开
+        same_top1 = 1.0 if dense[0].pid == sparse[0].pid else 0.0
+        d_gap = 1.0
+        if len(dense) > 1 and abs(dense[0].score) > 1e-6:
+            d_gap = (dense[0].score - dense[1].score) / abs(dense[0].score)
+        close = 1.0 if d_gap < gap else 0.5
+        return 0.6 * overlap + 0.4 * same_top1 * close
+
+    def needs_rerank(self, dense: list[Hit], sparse: list[Hit]) -> bool:
+        return self.agreement(dense, sparse) < self.cfg.router.rerank_gap
 
 
 class RouterRetriever(_BaseRetriever):
-    """策略路由检索器：把查询分派给不同检索路径。"""
+    """级联路由检索器：廉价通道先试，分歧时才升级重排。"""
 
     name = "router"
 
@@ -252,34 +287,56 @@ class RouterRetriever(_BaseRetriever):
         cfg: Config,
         corpus_ids,
         corpus_texts,
+        dense: DenseRetriever,
         sparse: BM25Retriever,
         hybrid: HybridRetriever,
         hybrid_rerank: HybridRerankRetriever,
     ):
         super().__init__(cfg, corpus_ids, corpus_texts)
+        self.dense = dense
         self.sparse = sparse
         self.hybrid = hybrid
         self.hybrid_rerank = hybrid_rerank
         self.router = QueryRouter(cfg)
         self._routes: dict[str, str] = {}
 
+    def decide(self, query: str, top_k: int) -> tuple[str, list[Hit]]:
+        """先跑两路廉价召回，再决定是否升级。返回 (路由名, 结果)。"""
+        if self.router.is_code_like(query):
+            return "bm25", self.sparse.search(query, top_k=top_k)
+
+        pool = max(top_k * 10, self.rcfg.rerank_top_k)
+        d_hits = self.dense.search(query, top_k=pool)
+        s_hits = self.sparse.search(query, top_k=pool)
+        agree = self.router.agreement(d_hits, s_hits)
+        # 一致性高 → 直接融合；否则把已有候选交给 cross-encoder 仲裁
+        if agree >= self.cfg.router.rerank_gap:
+            fused = (
+                weighted_fusion(
+                    [d_hits, s_hits],
+                    [self.rcfg.hybrid_alpha, 1 - self.rcfg.hybrid_alpha],
+                    top_k,
+                )
+                if self.rcfg.fusion == "weighted"
+                else reciprocal_rank_fusion([d_hits, s_hits], k=self.rcfg.rrf_k)[:top_k]
+            )
+            return "hybrid", fused
+
+        reranked = self.hybrid_rerank.rerank_hits(query, d_hits + s_hits, top_k)
+        return "hybrid_rerank", reranked
+
     def search(self, query: str, top_k: int = 10) -> list[Hit]:
-        route = self.router.route(query)
+        route, hits = self.decide(query, top_k)
         self._routes[query] = route
-        table = {
-            "bm25": self.sparse,
-            "hybrid": self.hybrid,
-            "hybrid_rerank": self.hybrid_rerank,
-        }
-        return table[route].search(query, top_k=top_k)
+        return hits
 
     def search_batch(self, queries: Sequence[str], top_k: int = 10) -> list[RetrievalResult]:
         out = []
         for qid, q in enumerate(queries):
-            route = self.router.route(q)
             t0 = time.perf_counter()
-            hits = self.search(q, top_k=top_k)
+            route, hits = self.decide(q, top_k)
             dt = (time.perf_counter() - t0) * 1000
+            self._routes[q] = route
             out.append(RetrievalResult(qid=str(qid), hits=hits, latency_ms=dt, route=route))
         return out
 

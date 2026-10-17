@@ -94,16 +94,22 @@ class Embedder:
 
 
 class Reranker:
-    """cross-encoder 重排器。"""
+    """cross-encoder 重排器。
+
+    ``max_length`` 显式限制在 256：文档平均 300+ 字，长文本来就该先切块，
+    整篇塞进 cross-encoder 既慢又会把关键句淹没（CPU 上实测 512 → 256 提速约 2 倍）。
+    """
 
     def __init__(
         self,
         model_name: str,
         batch_size: int = 16,
         device: str | None = None,
+        max_length: int = 256,
     ) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
+        self.max_length = max_length
         self.device = device or Embedder._auto_device()
         self._model = None
 
@@ -113,7 +119,7 @@ class Reranker:
             from sentence_transformers import CrossEncoder
 
             logger.info("加载重排模型 %s（device=%s）", self.model_name, self.device)
-            self._model = CrossEncoder(self.model_name, device=self.device)
+            self._model = CrossEncoder(self.model_name, device=self.device, max_length=self.max_length)
         return self._model
 
     def rerank(self, query: str, docs: list[str]) -> np.ndarray:

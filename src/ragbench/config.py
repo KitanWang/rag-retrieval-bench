@@ -108,8 +108,8 @@ class RouterConfig:
     long_query_chars: int = 14
     # 查询里出现型号/数字/英文标识的比例阈值 → 稀疏更强
     code_like_ratio: float = 0.15
-    # 稀疏与稠密 top1 分数接近时，额外走重排
-    rerank_gap: float = 0.25
+    # 稀疏与稠密的一致性低于该阈值时升级重排（0~1，越大越保守）
+    rerank_gap: float = 0.55
 
 
 @dataclass

@@ -25,6 +25,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
+# 第三方库的 INFO 日志（尤其 httpx 的每次请求）会把评测输出淹没
+for noisy in ("httpx", "urllib3", "huggingface_hub", "sentence_transformers", "datasets"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 logger = logging.getLogger("ragbench")
 
 
@@ -40,7 +43,7 @@ def cmd_retrieve(cfg: Config, args: argparse.Namespace) -> int:
     from ragbench.pipeline import run_retrieval_eval
 
     out = run_retrieval_eval(cfg, methods=args.methods)
-    logger.info("检索评测完成：%s", out)
+    logger.info("检索评测完成，结果见 %s", cfg.output_dir / "retrieval_results.json")
     return 0
 
 
@@ -52,7 +55,7 @@ def cmd_all(cfg: Config, args: argparse.Namespace) -> int:
         stats = data.prepare(cfg.data, force=args.force)
         logger.info("评测集已构建：%s", stats)
     out = run_retrieval_eval(cfg, methods=args.methods)
-    logger.info("全流程完成：%s", out)
+    logger.info("全流程完成，结果见 %s", cfg.output_dir / "retrieval_results.json")
     return 0
 
 

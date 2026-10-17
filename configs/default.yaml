@@ -28,4 +28,4 @@ eval:
 router:
   long_query_chars: 14
   code_like_ratio: 0.15
-  rerank_gap: 0.25
+  rerank_gap: 0.55

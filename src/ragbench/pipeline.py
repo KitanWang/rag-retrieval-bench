@@ -75,7 +75,7 @@ class RetrieverBundle:
         self.hybrid = HybridRetriever(cfg, cids, texts, self.dense, self.sparse)
         self.hybrid_rerank = HybridRerankRetriever(cfg, cids, texts, self.hybrid, self.reranker)
         self.router = RouterRetriever(
-            cfg, cids, texts, self.sparse, self.hybrid, self.hybrid_rerank
+            cfg, cids, texts, self.dense, self.sparse, self.hybrid, self.hybrid_rerank
         )
 
     def get(self, name: str):
@@ -128,7 +128,7 @@ def run_retrieval_eval(
                 latencies.append((time.perf_counter() - t0) * 1000)
                 rankings[qid] = [h.pid for h in hits]
                 if name == "router":
-                    routes[qid] = retriever.router.route(qtexts[qid])
+                    routes[qid] = retriever.routes.get(qtexts[qid], "")
 
             overall, detail = evaluate_with_details(rankings, gold, ks)
             results[name] = {
