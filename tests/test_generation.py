@@ -103,3 +103,53 @@ class TestHeuristicFallback:
 
     def test_relevancy_unrelated(self):
         assert _heuristic_relevancy("如何修改收货地址", "今天天气不错") == 0.0
+
+
+class TestStreamDecoding:
+    """SSE 流的编码回归测试。
+
+    真实缺陷：服务端在 text/event-stream 上返回 charset=ISO-8859-1，
+    requests 会照此解码，中文变成 "ä½ å¥½" 这类乱码。
+    不会报错，但会让忠实度判定全盘失真。
+    """
+
+    def test_utf8_chunks_decoded_correctly(self):
+        from ragbench.llm import LLMClient
+
+        class _FakeResp:
+            encoding = "ISO-8859-1"  # 故意模拟服务端的错误声明
+
+            def iter_lines(self, *a, **kw):
+                payload = '{"choices":[{"delta":{"content":"你好世界"}}]}'
+                return [
+                    ("data: " + payload).encode("utf-8"),
+                    b"",
+                    b"data: [DONE]",
+                ]
+
+        out = LLMClient._parse_stream(_FakeResp())
+        assert out == "你好世界"
+
+    def test_ignores_non_data_lines(self):
+        from ragbench.llm import LLMClient
+
+        class _FakeResp:
+            def iter_lines(self, *a, **kw):
+                chunk = '{"choices":[{"delta":{"content":"答"}}]}'
+                return [b"event: ping", ("data: " + chunk).encode("utf-8"), b"data: [DONE]"]
+
+        assert LLMClient._parse_stream(_FakeResp()) == "答"
+
+    def test_multiple_chunks_concatenated(self):
+        from ragbench.llm import LLMClient
+
+        class _FakeResp:
+            def iter_lines(self, *a, **kw):
+                lines = []
+                for piece in ("一", "二", "三"):
+                    body = '{"choices":[{"delta":{"content":"%s"}}]}' % piece
+                    lines.append(("data: " + body).encode("utf-8"))
+                lines.append(b"data: [DONE]")
+                return lines
+
+        assert LLMClient._parse_stream(_FakeResp()) == "一二三"

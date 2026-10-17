@@ -67,7 +67,10 @@ class LLMClient:
         }
         headers = {
             "Authorization": f"Bearer {self.cfg.api_key}",
-            "Content-Type": "application/json",
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "text/event-stream",
+            # 显式要求 UTF-8：服务端默认回 ISO-8859-1，会导致中文乱码
+            "Accept-Charset": "utf-8",
         }
 
         last_err: Exception | None = None
@@ -96,11 +99,22 @@ class LLMClient:
 
     @staticmethod
     def _parse_stream(resp: requests.Response) -> str:
+        """解析 SSE 流。
+
+        **必须显式按 UTF-8 解码**：服务端在 `text/event-stream` 上返回的
+        `charset` 是 `ISO-8859-1`（HTTP/1.1 的默认值），requests 会照此解码，
+        导致中文全部变成乱码（"你好" → "ä½  å¥½"）。
+        这不会报错，只会让下游的忠实度判定悄悄失效——
+        属于典型的「不报错但结果全错」缺陷。
+        """
         chunks: list[str] = []
-        for raw in resp.iter_lines(decode_unicode=True):
-            if not raw or not raw.startswith("data:"):
+        for raw in resp.iter_lines():
+            if not raw:
                 continue
-            body = raw[5:].strip()
+            line = raw.decode("utf-8", errors="replace")
+            if not line.startswith("data:"):
+                continue
+            body = line[5:].strip()
             if body == "[DONE]":
                 break
             try:
