@@ -1,0 +1,53 @@
+{
+  "dense": {
+    "n": 60,
+    "faithfulness": 0.9976190476190475,
+    "relevancy": 0.8166666666666667,
+    "context_precision": 0.67,
+    "retrieval_hit_rate": 0.9833333333333333,
+    "refusal_rate": 0.18333333333333332,
+    "error_rate": 0.0
+  },
+  "bm25": {
+    "n": 60,
+    "faithfulness": 0.9966386554621849,
+    "relevancy": 0.7333333333333333,
+    "context_precision": 0.5266666666666667,
+    "retrieval_hit_rate": 0.8666666666666667,
+    "refusal_rate": 0.2833333333333333,
+    "error_rate": 0.0
+  },
+  "hybrid": {
+    "n": 60,
+    "faithfulness": 0.9958333333333333,
+    "relevancy": 0.75,
+    "context_precision": 0.62,
+    "retrieval_hit_rate": 0.95,
+    "refusal_rate": 0.26666666666666666,
+    "error_rate": 0.0
+  },
+  "hybrid_rerank": {
+    "n": 60,
+    "faithfulness": 0.9899801587301588,
+    "relevancy": 0.8333333333333334,
+    "context_precision": 0.7066666666666667,
+    "retrieval_hit_rate": 0.9833333333333333,
+    "refusal_rate": 0.18333333333333332,
+    "error_rate": 0.0
+  },
+  "router": {
+    "n": 60,
+    "faithfulness": 0.9895138888888888,
+    "relevancy": 0.8,
+    "context_precision": 0.6566666666666666,
+    "retrieval_hit_rate": 0.95,
+    "refusal_rate": 0.2,
+    "error_rate": 0.0
+  },
+  "_meta": {
+    "model": "deepseek-v4.1-flash",
+    "temperature": 0.0,
+    "n_samples": 60,
+    "top_k": 5
+  }
+}
