@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-
 import time
 from pathlib import Path
 
@@ -46,7 +45,9 @@ class RetrieverBundle:
         logger.info("构建 BM25 索引（%d 篇文档）…", len(corpus_texts))
         t0 = time.perf_counter()
         self.bm25 = BM25Index(k1=rcfg.bm25_k1, b=rcfg.bm25_b).fit(corpus_texts)
-        logger.info("BM25 完成，用时 %.1fs，词表 %d", time.perf_counter() - t0, len(self.bm25.vocab))
+        logger.info(
+            "BM25 完成，用时 %.1fs，词表 %d", time.perf_counter() - t0, len(self.bm25.vocab)
+        )
 
         self.embedder = Embedder(
             rcfg.embed_model,
@@ -98,7 +99,7 @@ class RetrieverBundle:
 def run_retrieval_eval(
     cfg: Config,
     methods: list[str] | None = None,
-    reuse: "RetrieverBundle | None" = None,
+    reuse: RetrieverBundle | None = None,
 ) -> dict:
     """跑检索评测，返回并落盘结果。"""
     methods = list(methods or ALL_METHODS)
@@ -107,7 +108,7 @@ def run_retrieval_eval(
     corpus_texts = corpus["text"].tolist()
     gold = data.gold_map(qrels)
     qids = [q for q in queries["qid"].tolist() if q in gold]
-    qtexts = dict(zip(queries["qid"], queries["text"]))
+    qtexts = dict(zip(queries["qid"], queries["text"], strict=False))
 
     logger.info("评测集：语料 %d / 查询 %d", len(corpus_ids), len(qids))
 
@@ -155,7 +156,7 @@ def run_retrieval_eval(
                 #   · 走 rerank 的 163 条查询，延迟是秒级。
                 # 两者是**双峰分布**，用单一中位数描述它是误导。
                 by_route: dict[str, list[float]] = {}
-                for qid, lat in zip(qids, latencies):
+                for qid, lat in zip(qids, latencies, strict=False):
                     by_route.setdefault(routes[qid] or "unknown", []).append(lat)
                 results[name]["latency_by_route"] = {
                     route: {
@@ -175,7 +176,9 @@ def run_retrieval_eval(
                     results[name]["cost_saving"] = {
                         "actual_total_ms": round(actual, 1),
                         "all_rerank_total_ms": round(all_rerank, 1),
-                        "saved_pct": round((1 - actual / all_rerank) * 100, 1) if all_rerank else 0.0,
+                        "saved_pct": round((1 - actual / all_rerank) * 100, 1)
+                        if all_rerank
+                        else 0.0,
                     }
             logger.info(
                 "   Recall@5=%.4f  MRR@5=%.4f  nDCG@5=%.4f  p50=%.1fms",

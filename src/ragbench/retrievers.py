@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Protocol, Sequence
+from collections.abc import Sequence
+from typing import Protocol
 
 import numpy as np
 
@@ -46,12 +47,10 @@ def reciprocal_rank_fusion(
     if len(weights) != len(rankings):
         raise ValueError("weights 与 rankings 数量不一致")
     fused: dict[str, float] = {}
-    for hits, w in zip(rankings, weights):
+    for hits, w in zip(rankings, weights, strict=False):
         for rank, hit in enumerate(hits, start=1):
             fused[hit.pid] = fused.get(hit.pid, 0.0) + w / (k + rank)
-    return sorted(
-        (Hit(pid, score) for pid, score in fused.items()), key=lambda h: -h.score
-    )
+    return sorted((Hit(pid, score) for pid, score in fused.items()), key=lambda h: -h.score)
 
 
 def min_max_normalize(hits: list[Hit]) -> list[Hit]:
@@ -65,12 +64,10 @@ def min_max_normalize(hits: list[Hit]) -> list[Hit]:
     return [Hit(h.pid, float((h.score - lo) / (hi - lo))) for h in hits]
 
 
-def weighted_fusion(
-    rankings: list[list[Hit]], weights: list[float], top_k: int
-) -> list[Hit]:
+def weighted_fusion(rankings: list[list[Hit]], weights: list[float], top_k: int) -> list[Hit]:
     """归一化加权融合：score = Σ w_i * norm(score_i)。缺失的一路按 0 计。"""
     table: dict[str, float] = {}
-    for hits, w in zip(rankings, weights):
+    for hits, w in zip(rankings, weights, strict=False):
         for h in min_max_normalize(hits):
             table[h.pid] = table.get(h.pid, 0.0) + w * h.score
     merged = sorted((Hit(pid, s) for pid, s in table.items()), key=lambda h: -h.score)
@@ -207,7 +204,8 @@ class HybridRerankRetriever(_BaseRetriever):
         docs = [self.corpus_texts[self.id_to_idx[h.pid]] for h in uniq]
         scores = self.reranker.rerank(query, docs)
         rescored = sorted(
-            (Hit(h.pid, float(s)) for h, s in zip(uniq, scores)), key=lambda h: -h.score
+            (Hit(h.pid, float(s)) for h, s in zip(uniq, scores, strict=False)),
+            key=lambda h: -h.score,
         )
         return rescored[:top_k]
 

@@ -89,10 +89,7 @@ def evaluate_with_details(
     detail: dict[str, dict[str, float]] = {}
     for qid, ranked in rankings.items():
         g = gold[qid]
-        detail[qid] = {
-            f"recall@{k}": recall_at_k(ranked, g, k)
-            for k in ks
-        } | {
+        detail[qid] = {f"recall@{k}": recall_at_k(ranked, g, k) for k in ks} | {
             f"mrr@{k}": mrr_at_k(ranked, g, k) for k in ks
         }
     return overall, detail

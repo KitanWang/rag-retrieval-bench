@@ -138,8 +138,7 @@ def render_backend_bench(payload: dict) -> str:
     for r in results:
         match = "-" if "top1_match" not in r else ("是" if r["top1_match"] else "**否**")
         lines.append(
-            f"| {r['backend']} | {r['build_s']} s | {r['p50_ms']} ms "
-            f"| {r['p95_ms']} ms | {match} |"
+            f"| {r['backend']} | {r['build_s']} s | {r['p50_ms']} ms | {r['p95_ms']} ms | {match} |"
         )
     lines.append("")
     lines.append(
@@ -221,7 +220,8 @@ def build_report(cfg, out_path: Path) -> Path:
     if generation:
         parts.append("## 6. 生成质量评测\n")
         parts.append(
-            f"> 采样 {generation['n_samples']} 条查询，取 top-{generation['top_k']} 文档作为上下文，"
+            f"> 采样 {generation['n_samples']} 条查询，"
+            f"取 top-{generation['top_k']} 文档作为上下文，"
             f"模型 `{generation['model']}`，温度 {generation['temperature']}。\n"
         )
         parts.append(render_generation_table(generation))

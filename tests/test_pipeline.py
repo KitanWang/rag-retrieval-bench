@@ -55,14 +55,22 @@ class TestBuildEvalSet:
 
     def test_same_seed_is_deterministic(self):
         corpus, queries, qrels = _fake_data()
-        a = build_eval_set(corpus, queries, qrels, DataConfig(corpus_size=50, query_size=10, seed=7))
-        b = build_eval_set(corpus, queries, qrels, DataConfig(corpus_size=50, query_size=10, seed=7))
+        a = build_eval_set(
+            corpus, queries, qrels, DataConfig(corpus_size=50, query_size=10, seed=7)
+        )
+        b = build_eval_set(
+            corpus, queries, qrels, DataConfig(corpus_size=50, query_size=10, seed=7)
+        )
         assert list(a[2]["qid"]) == list(b[2]["qid"])
 
     def test_different_seed_differs(self):
         corpus, queries, qrels = _fake_data(n_queries=40)
-        a = build_eval_set(corpus, queries, qrels, DataConfig(corpus_size=80, query_size=10, seed=1))
-        b = build_eval_set(corpus, queries, qrels, DataConfig(corpus_size=80, query_size=10, seed=2))
+        a = build_eval_set(
+            corpus, queries, qrels, DataConfig(corpus_size=80, query_size=10, seed=1)
+        )
+        b = build_eval_set(
+            corpus, queries, qrels, DataConfig(corpus_size=80, query_size=10, seed=2)
+        )
         assert set(a[1]["qid"]) != set(b[1]["qid"])
 
     def test_only_queries_with_positive_qrels(self):
@@ -75,7 +83,9 @@ class TestBuildEvalSet:
     def test_drops_qrels_pointing_to_missing_docs(self):
         corpus, queries, qrels = _fake_data()
         qrels.loc[0, "pid"] = "not-exists"
-        _, _, sub_r = build_eval_set(corpus, queries, qrels, DataConfig(corpus_size=100, query_size=30))
+        _, _, sub_r = build_eval_set(
+            corpus, queries, qrels, DataConfig(corpus_size=100, query_size=30)
+        )
         assert "not-exists" not in set(sub_r["pid"])
 
 

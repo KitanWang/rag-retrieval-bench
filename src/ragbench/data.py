@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 import random
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import pandas as pd
 
@@ -33,14 +33,18 @@ def _hf_download(dataset: str, filename_pattern: str, out_dir: Path) -> list[Pat
     paths = []
     for name in files:
         local = hf_hub_download(
-            repo_id=dataset, filename=name, repo_type="dataset",
+            repo_id=dataset,
+            filename=name,
+            repo_type="dataset",
             local_dir=str(out_dir / dataset.replace("/", "__")),
         )
         paths.append(Path(local))
     return paths
 
 
-def load_raw(cfg: DataConfig, force: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_raw(
+    cfg: DataConfig, force: bool = False
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """下载并读取原始 corpus / queries / qrels（列名统一为 id/text）。"""
     cache = cfg.raw_dir / "duretrival"
     corpus_f = cache / "corpus.parquet"
@@ -66,15 +70,14 @@ def _fetch_parquet(repo: str, prefix: str, dest: Path, force: bool) -> None:
     if dest.exists() and not force:
         return
     names = [
-        n for n in list_repo_files(repo, repo_type="dataset")
+        n
+        for n in list_repo_files(repo, repo_type="dataset")
         if n.startswith("data/") and n.endswith(".parquet") and prefix in n
     ]
     if not names:
         raise FileNotFoundError(f"{repo} 中没有找到 {prefix}*.parquet")
     frames = [
-        pd.read_parquet(
-            hf_hub_download(repo_id=repo, filename=n, repo_type="dataset")
-        )
+        pd.read_parquet(hf_hub_download(repo_id=repo, filename=n, repo_type="dataset"))
         for n in names
     ]
     pd.concat(frames, ignore_index=True).to_parquet(dest, index=False)
@@ -143,7 +146,7 @@ def build_eval_set(
     # 只用有正例、且正例都在语料里的 query
     corpus_ids = set(corpus["pid"])
     gold_by_q: dict[str, set[str]] = defaultdict(set)
-    for qid, pid in zip(qrels["qid"], qrels["pid"]):
+    for qid, pid in zip(qrels["qid"], qrels["pid"], strict=False):
         if pid in corpus_ids:
             gold_by_q[qid].add(pid)
     usable = [q for q in queries["qid"] if q in gold_by_q]
@@ -159,8 +162,12 @@ def build_eval_set(
     keep = gold_pids | set(others[:fill])
 
     sub_corpus = corpus[corpus["pid"].isin(keep)].drop_duplicates("pid").reset_index(drop=True)
-    sub_queries = queries[queries["qid"].isin(picked_set)].drop_duplicates("qid").reset_index(drop=True)
-    sub_qrels = qrels[qrels["qid"].isin(picked_set) & qrels["pid"].isin(keep)].reset_index(drop=True)
+    sub_queries = (
+        queries[queries["qid"].isin(picked_set)].drop_duplicates("qid").reset_index(drop=True)
+    )
+    sub_qrels = qrels[qrels["qid"].isin(picked_set) & qrels["pid"].isin(keep)].reset_index(
+        drop=True
+    )
     return sub_corpus, sub_queries, sub_qrels
 
 
@@ -190,9 +197,7 @@ def load_processed(cfg: DataConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     """读取已构建好的评测集。"""
     missing = [p for p in (cfg.corpus_path, cfg.queries_path, cfg.qrels_path) if not p.exists()]
     if missing:
-        raise FileNotFoundError(
-            f"评测集不存在：{missing}；请先运行 `ragbench prepare`"
-        )
+        raise FileNotFoundError(f"评测集不存在：{missing}；请先运行 `ragbench prepare`")
     return (
         pd.read_parquet(cfg.corpus_path),
         pd.read_parquet(cfg.queries_path),
@@ -203,7 +208,7 @@ def load_processed(cfg: DataConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
 def gold_map(qrels: pd.DataFrame) -> dict[str, set[str]]:
     """qrel 表 → {qid: {pid...}}。"""
     out: dict[str, set[str]] = defaultdict(set)
-    for qid, pid in zip(qrels["qid"], qrels["pid"]):
+    for qid, pid in zip(qrels["qid"], qrels["pid"], strict=False):
         out[qid].add(pid)
     return dict(out)
 

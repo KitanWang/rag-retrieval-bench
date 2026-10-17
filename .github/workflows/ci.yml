@@ -20,33 +20,24 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
-      - name: Install dependencies (no torch, 仅跑轻量单测)
+      - name: Create venv
+        run: uv venv --python ${{ matrix.python-version }}
+
+      # 只装轻量依赖：单测不需要 torch / sentence-transformers
+      - name: Install dependencies
         run: |
-          uv venv --python ${{ matrix.python-version }}
           uv pip install numpy pandas pyarrow PyYAML requests jieba pytest ruff
+          uv pip install -e . --no-deps
 
       - name: Lint
         run: uv run ruff check src tests
 
       - name: Run tests
         run: uv run pytest tests -q
-
-  smoke:
-    name: Smoke pipeline (纯 CPU, 无模型下载)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
-      - name: Install deps
-        run: |
-          uv venv --python 3.12
-          uv pip install numpy pandas pyarrow PyYAML requests jieba pytest
-      - name: Verify BM25 end-to-end on synthetic data
-        run: uv run pytest tests/test_sparse.py tests/test_metrics.py -q

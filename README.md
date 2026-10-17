@@ -207,7 +207,7 @@ src/ragbench/
   generation.py  生成质量评测（自实现忠实度等）
   report.py      Markdown 报告生成
   llm.py         OpenAI 兼容 LLM 客户端（并发 + 重试）
-tests/           89 个单元测试
+tests/           94 个单元测试
 configs/         默认 / 冒烟两套配置
 ```
 

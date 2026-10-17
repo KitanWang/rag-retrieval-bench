@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+
 from ragbench import data
 from ragbench.config import Config
 from ragbench.generation import (
@@ -40,7 +41,7 @@ def run_generation_eval(
     rng = random.Random(cfg.data.seed)
     rng.shuffle(usable)
     picked = sorted(usable[:sample_size])
-    qtext = dict(zip(queries["qid"], queries["text"]))
+    qtext = dict(zip(queries["qid"], queries["text"], strict=False))
 
     llm_cfg = LLMConfig.from_env(
         base_url=cfg.eval.llm_base_url,
@@ -51,10 +52,12 @@ def run_generation_eval(
         concurrency=cfg.eval.llm_concurrency,
     )
     llm = LLMClient(llm_cfg)
-    logger.info("生成评测：%d 条查询 × %d 种方案，模型 %s", len(picked), len(methods), llm_cfg.model)
+    logger.info(
+        "生成评测：%d 条查询 × %d 种方案，模型 %s", len(picked), len(methods), llm_cfg.model
+    )
 
     bundle = RetrieverBundle(cfg, corpus["pid"].tolist(), corpus["text"].tolist())
-    pid2text = dict(zip(corpus["pid"], corpus["text"]))
+    pid2text = dict(zip(corpus["pid"], corpus["text"], strict=False))
     results: dict[str, dict] = {}
     retrieved_ids: dict[str, list[str]] = {}
     try:
@@ -77,10 +80,8 @@ def run_generation_eval(
                 samples.append(s)
 
             # 生成与打分都走并发，顺序由 llm.map 保证
-            answers = llm.map(
-                lambda s: answer_question(llm, s.question, s.contexts), samples
-            )
-            for s, a in zip(samples, answers):
+            answers = llm.map(lambda s: answer_question(llm, s.question, s.contexts), samples)
+            for s, a in zip(samples, answers, strict=False):
                 if isinstance(a, dict):
                     s.error = a.get("error", "")
                 else:
@@ -89,7 +90,7 @@ def run_generation_eval(
             faith = llm.map(lambda s: score_faithfulness(llm, s.answer, s.contexts), samples)
             rel = llm.map(lambda s: score_relevancy(llm, s.question, s.answer), samples)
 
-            for s, f, r in zip(samples, faith, rel):
+            for s, f, r in zip(samples, faith, rel, strict=False):
                 if isinstance(f, tuple):
                     s.faithful_score, s.claims = f
                 if isinstance(r, float):
@@ -127,9 +128,7 @@ def _aggregate(
 ) -> dict:
     n = max(1, len(samples))
     errors = [s for s in samples if s.error]
-    hit = sum(
-        1 for s in samples if set(retrieved.get(s.qid, [])) & gold.get(s.qid, set())
-    )
+    hit = sum(1 for s in samples if set(retrieved.get(s.qid, [])) & gold.get(s.qid, set()))
     return {
         "n": len(samples),
         "faithfulness": sum(s.faithful_score for s in samples) / n,

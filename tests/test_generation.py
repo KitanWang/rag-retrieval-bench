@@ -145,9 +145,9 @@ class TestStreamDecoding:
 
         class _FakeResp:
             def iter_lines(self, *a, **kw):
-                lines = []
+                lines: list[bytes] = []
                 for piece in ("一", "二", "三"):
-                    body = '{"choices":[{"delta":{"content":"%s"}}]}' % piece
+                    body = f'{{"choices":[{{"delta":{{"content":"{piece}"}}}}]}}'
                     lines.append(("data: " + body).encode("utf-8"))
                 lines.append(b"data: [DONE]")
                 return lines

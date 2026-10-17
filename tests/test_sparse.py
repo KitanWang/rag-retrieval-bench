@@ -81,7 +81,7 @@ class TestBM25:
         expected = np.zeros(len(docs), dtype=np.float32)
         for vid in dict.fromkeys(q_ids):
             doc_ids, freqs = idx._postings[vid]
-            for d, f in zip(doc_ids, freqs):
+            for d, f in zip(doc_ids, freqs, strict=False):
                 norm = idx.k1 * (1 - idx.b + idx.b * idx.doc_len[d] / idx.avgdl)
                 expected[d] += float(f / (f + norm) * (idx.k1 + 1) * idx.idf[vid])
         assert np.allclose(got, expected, atol=1e-5)

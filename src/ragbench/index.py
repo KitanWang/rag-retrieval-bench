@@ -80,7 +80,9 @@ class FaissIndex:
             except Exception:
                 pass
             self.client.drop_index(self.collection, existing[0])
-            logger.info("已删除旧索引（%s），准备重建为 %s", current_type or "unknown", self.index_type)
+            logger.info(
+                "已删除旧索引（%s），准备重建为 %s", current_type or "unknown", self.index_type
+            )
 
         from pymilvus import MilvusClient
 
@@ -116,7 +118,11 @@ class FaissIndex:
             self._index.add(emb)
             self._index.hnsw.efSearch = 64
         else:
-            self._index = faiss.IndexFlatIP(dim) if base_metric == faiss.METRIC_INNER_PRODUCT else faiss.IndexFlatL2(dim)
+            self._index = (
+                faiss.IndexFlatIP(dim)
+                if base_metric == faiss.METRIC_INNER_PRODUCT
+                else faiss.IndexFlatL2(dim)
+            )
             self._index.add(emb)
         self.ids = list(ids)
         logger.info("FAISS 索引构建完成：%d 条，type=%s，dim=%d", len(ids), self.index_type, dim)
@@ -131,7 +137,7 @@ class FaissIndex:
             faiss.normalize_L2(q)
         scores, idxs = self._index.search(q, top_k)
         out = []
-        for score, i in zip(scores[0], idxs[0]):
+        for score, i in zip(scores[0], idxs[0], strict=False):
             if i < 0:
                 continue
             out.append((self.ids[int(i)], float(score)))
@@ -200,7 +206,9 @@ class MilvusIndex:
             except Exception:
                 pass
             self.client.drop_index(self.collection, existing[0])
-            logger.info("已删除旧索引（%s），准备重建为 %s", current_type or "unknown", self.index_type)
+            logger.info(
+                "已删除旧索引（%s），准备重建为 %s", current_type or "unknown", self.index_type
+            )
 
         from pymilvus import MilvusClient
 
@@ -228,7 +236,9 @@ class MilvusIndex:
         )
         self._create_index(dim)
 
-        rows = [{"id": pid, "vector": emb.tolist()} for pid, emb in zip(ids, embeddings)]
+        rows = [
+            {"id": pid, "vector": emb.tolist()} for pid, emb in zip(ids, embeddings, strict=False)
+        ]
         for i in range(0, len(rows), 1000):
             self.client.insert(self.collection, rows[i : i + 1000])
         self.client.load_collection(self.collection)

@@ -11,9 +11,10 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any
 
 import requests
 
@@ -94,7 +95,6 @@ class LLMClient:
     @staticmethod
     def _parse_json(resp: requests.Response) -> str:
         data = resp.json()
-        usage = data.get("usage") or {}
         return data["choices"][0]["message"].get("content", "")
 
     @staticmethod

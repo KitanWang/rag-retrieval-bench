@@ -119,7 +119,9 @@ class Reranker:
             from sentence_transformers import CrossEncoder
 
             logger.info("加载重排模型 %s（device=%s）", self.model_name, self.device)
-            self._model = CrossEncoder(self.model_name, device=self.device, max_length=self.max_length)
+            self._model = CrossEncoder(
+                self.model_name, device=self.device, max_length=self.max_length
+            )
         return self._model
 
     def rerank(self, query: str, docs: list[str]) -> np.ndarray:

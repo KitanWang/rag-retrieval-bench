@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
@@ -73,7 +72,7 @@ def cmd_all(cfg: Config, args: argparse.Namespace) -> int:
     if not cfg.data.corpus_path.exists() or args.force:
         stats = data.prepare(cfg.data, force=args.force)
         logger.info("评测集已构建：%s", stats)
-    out = run_retrieval_eval(cfg, methods=args.methods)
+    run_retrieval_eval(cfg, methods=args.methods)
     logger.info("全流程完成，结果见 %s", cfg.output_dir / "retrieval_results.json")
     return 0
 

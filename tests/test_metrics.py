@@ -94,8 +94,16 @@ class TestEvaluateRankings:
     def test_all_k_present(self):
         out = evaluate_rankings({"q": ["a"]}, {"q": {"a"}}, ks=(1, 5, 10))
         assert set(out) == {
-            "recall@1", "recall@5", "recall@10",
-            "mrr@1", "mrr@5", "mrr@10",
-            "ndcg@1", "ndcg@5", "ndcg@10",
-            "hit@1", "hit@5", "hit@10",
+            "recall@1",
+            "recall@5",
+            "recall@10",
+            "mrr@1",
+            "mrr@5",
+            "mrr@10",
+            "ndcg@1",
+            "ndcg@5",
+            "ndcg@10",
+            "hit@1",
+            "hit@5",
+            "hit@10",
         }
